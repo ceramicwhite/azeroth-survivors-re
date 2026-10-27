@@ -708,7 +708,7 @@ pub(super) fn setup_hud(
                     ..default()
                 },
             ));
-            root.spawn(centered(f, "Click a card, or press 1, 2 or 3", 14.0, DIM));
+            root.spawn(centered(f, "Click a card, or press 1, 2 or 3 (pad: D-pad and A)", 14.0, DIM));
         });
 
     // --- Pause. ---
@@ -1049,6 +1049,7 @@ pub(super) fn buttons(
 
 pub(super) fn keys(
     keys: Res<ButtonInput<KeyCode>>,
+    pad: Res<super::pad::Pad>,
     phase: Res<State<Phase>>,
     mut selection: ResMut<Selection>,
     mut run: ResMut<Run>,
@@ -1056,23 +1057,25 @@ pub(super) fn keys(
 ) {
     match phase.get() {
         Phase::Menu => {
-            if keys.just_pressed(KeyCode::Enter) && start_run(&mut run, &mut selection) {
+            if (keys.just_pressed(KeyCode::Enter) || pad.start)
+                && start_run(&mut run, &mut selection)
+            {
                 next.set(Phase::Playing);
             }
         }
         Phase::Playing => {
-            if keys.just_pressed(KeyCode::Escape) {
+            if keys.just_pressed(KeyCode::Escape) || pad.start {
                 next.set(Phase::Paused);
             }
         }
         Phase::Paused => {
-            if keys.just_pressed(KeyCode::Escape) {
+            if keys.just_pressed(KeyCode::Escape) || pad.start || pad.back {
                 next.set(Phase::Playing);
             }
         }
         Phase::LevelUp => {}
         Phase::GameOver => {
-            if keys.just_pressed(KeyCode::Enter) {
+            if keys.just_pressed(KeyCode::Enter) || pad.start {
                 next.set(Phase::Menu);
             }
         }
@@ -1287,7 +1290,7 @@ pub(super) fn refresh_hud(
         **t = title;
     }
     let summary = format!(
-        "{} {} in {}   —   press Enter to play again",
+        "{} {} in {}   —   press Enter (pad: Start) to play again",
         crate::char_select::race_name(run.race),
         run.class.name,
         selection.map_def().name,

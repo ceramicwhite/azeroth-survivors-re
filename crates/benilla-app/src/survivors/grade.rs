@@ -81,8 +81,12 @@ fn attach(
     }
 }
 
-fn toggle(keys: Res<ButtonInput<KeyCode>>, mut on: ResMut<GradeOn>) {
-    if keys.just_pressed(KeyCode::KeyG) {
+fn toggle(
+    keys: Res<ButtonInput<KeyCode>>,
+    pad: Res<super::pad::Pad>,
+    mut on: ResMut<GradeOn>,
+) {
+    if keys.just_pressed(KeyCode::KeyG) || pad.grade {
         on.0 = !on.0;
     }
 }

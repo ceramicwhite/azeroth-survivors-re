@@ -39,6 +39,9 @@ const FIXED_PITCH: f32 = 61.0 * std::f32::consts::PI / 180.0;
 /// Wheel zoom range, yards from the hero's shoulders.
 const ZOOM_MIN: f32 = 1.5;
 const ZOOM_MAX: f32 = 70.0;
+/// The pad camera: radians a second at full stick tilt; bumper zoom, fraction of the distance a second.
+const PAD_ORBIT_RATE: f32 = 2.6;
+const PAD_ZOOM_RATE: f32 = 1.2;
 
 /// Whether the camera is locked; `C` toggles it.
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -151,6 +154,8 @@ pub(super) fn aim_cursor(
     cams: Query<(&Camera, &Transform), With<WorldCamera>>,
     hero: Query<&Transform, (With<Hero>, Without<WorldCamera>)>,
     world: WorldPoint,
+    pad: Res<super::pad::Pad>,
+    rig: Res<CamRig>,
     mut aim: ResMut<AimPoint>,
 ) {
     let point = (|| {
@@ -178,6 +183,14 @@ pub(super) fn aim_cursor(
         }
         at
     })();
+    // A pad's right stick stands in for the cursor while a pad was touched last.
+    let point = if pad.active {
+        hero.single()
+            .ok()
+            .and_then(|h| super::pad::aim_point(&pad, rig.yaw, h.translation))
+    } else {
+        point
+    };
     if aim.0 != point {
         aim.0 = point;
     }
@@ -188,6 +201,7 @@ pub(super) fn aim_cursor(
 pub(super) fn drive_hero(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
+    pad: Res<super::pad::Pad>,
     phase: Res<State<Phase>>,
     run: Res<Run>,
     selection: Res<Selection>,
@@ -220,6 +234,7 @@ pub(super) fn drive_hero(
                 if keys.any_pressed([KeyCode::KeyD, KeyCode::ArrowRight]) {
                     dir.x += 1.0;
                 }
+                dir += Vec3::new(pad.mv.x, 0.0, -pad.mv.y);
                 // In orbit mode WASD is camera-relative; in fixed mode it stays world-relative.
                 if rig.mode == CamMode::Orbit {
                     let (sy, cy) = rig.yaw.sin_cos();
@@ -242,8 +257,10 @@ pub(super) fn drive_hero(
                 tf.rotation = tf.rotation.slerp(target, (dt * 20.0).min(1.0));
             }
             if dir != Vec3::ZERO && dt > 0.0 {
+                // A half-tilted stick walks at half speed; a key, or a stick and a key, at full.
+                let throttle = dir.length().min(1.0);
                 let dir = dir.normalize();
-                let speed = run.stats().speed * run.haste_mult();
+                let speed = run.stats().speed * run.haste_mult() * throttle;
                 pos += dir * speed * dt;
                 mv.speed = speed;
                 mv.flags = match face {
@@ -272,7 +289,11 @@ pub(super) fn drive_hero(
             let ground = world.terrain_height_under(pos).unwrap_or(pos.y);
             let playing = *phase.get() == Phase::Playing && run.dead_t.is_none();
             // Space hops: lift off the terrain, then gravity brings the hero back down.
-            if playing && keys.just_pressed(KeyCode::Space) && hm.vy == 0.0 && hm.air == 0.0 {
+            if playing
+                && (keys.just_pressed(KeyCode::Space) || pad.jump)
+                && hm.vy == 0.0
+                && hm.air == 0.0
+            {
                 hm.vy = JUMP_SPEED;
             }
             if playing && (hm.vy != 0.0 || hm.air > 0.0) {
@@ -339,6 +360,7 @@ pub(super) fn place_camera(
     mouse: Res<ButtonInput<MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
     keys: Res<ButtonInput<KeyCode>>,
+    pad: Res<super::pad::Pad>,
     player: Res<crate::player::Player>,
     world: WorldPoint,
     hero: Query<&Transform, (With<Hero>, Without<WorldCamera>)>,
@@ -346,7 +368,7 @@ pub(super) fn place_camera(
 ) {
     // `C` unlocks the camera to swing and tilt; locking it again snaps back to the top-down view,
     // so world-relative WASD lines up with the screen again.
-    if keys.just_pressed(KeyCode::KeyC) {
+    if keys.just_pressed(KeyCode::KeyC) || pad.camera {
         rig.mode = match rig.mode {
             CamMode::Fixed => CamMode::Orbit,
             CamMode::Orbit => {
@@ -367,6 +389,11 @@ pub(super) fn place_camera(
         };
         rig.dist = (rig.dist * (1.0 - 0.12 * notches).clamp(0.5, 1.5)).clamp(ZOOM_MIN, ZOOM_MAX);
     }
+    // The bumpers zoom at a steady rate.
+    if pad.zoom != 0.0 {
+        let k = 1.0 + pad.zoom * PAD_ZOOM_RATE * time.delta_secs();
+        rig.dist = (rig.dist * k).clamp(ZOOM_MIN, ZOOM_MAX);
+    }
     let (eye, look) = if *phase.get() == Phase::Menu {
         rig.orbit += time.delta_secs() * 0.2;
         let d = 7.0;
@@ -380,6 +407,12 @@ pub(super) fn place_camera(
         {
             rig.yaw -= motion.delta.x * ORBIT_RATE;
             rig.pitch = (rig.pitch + motion.delta.y * ORBIT_RATE).clamp(PITCH_MIN, PITCH_MAX);
+        }
+        // The right stick swings and tilts it the same way: up the screen as the mouse up.
+        if rig.mode == CamMode::Orbit && pad.look != Vec2::ZERO {
+            let dt = time.delta_secs();
+            rig.yaw -= pad.look.x * PAD_ORBIT_RATE * dt;
+            rig.pitch = (rig.pitch - pad.look.y * PAD_ORBIT_RATE * dt).clamp(PITCH_MIN, PITCH_MAX);
         }
         let (sy, cy) = rig.yaw.sin_cos();
         let (sp, cp) = rig.pitch.sin_cos();

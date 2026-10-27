@@ -72,7 +72,8 @@ Run `make` (or `make help`) to list every target.
 
 See [CONTROLS.md](CONTROLS.md). The short version: **WASD** to move, **Space** to jump, **F**
 for your class's movement spell, the **mouse wheel** to zoom, **C** to unlock the camera, **Esc**
-to pause, **1/2/3** to pick a level-up card.
+to pause, **1/2/3** to pick a level-up card. A Bluetooth or USB controller works too, in the
+native app and in the browser: left stick to move, **A** to jump, **X** for the movement spell.
 
 ## The game data (not in this repo)
 
